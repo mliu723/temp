@@ -16,50 +16,75 @@ Write-Host ""
 
 # 检查 api.json 是否存在
 $apiJsonPath = "C:\api.json"
-if (-not (Test-Path $apiJsonPath)) {
+
+if (Test-Path $apiJsonPath) {
+    $item = Get-Item $apiJsonPath
+    if ($item.PSIsContainer) {
+        Write-Host "错误: C:\api.json 是一个目录，不是文件" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "请删除该目录或重命名，然后创建一个文件: C:\api.json"
+        exit 1
+    }
+
+    $fileSize = [math]::Round($item.Length / 1MB, 2)
+    Write-Host "找到 api.json: $fileSize MB" -ForegroundColor Green
+} else {
     Write-Host "错误: 找不到 C:\api.json 文件" -ForegroundColor Red
     Write-Host ""
-    Write-Host "请按以下步骤操作："
+    Write-Host "请按以下步骤操作：" -ForegroundColor Yellow
     Write-Host "1. 将 api.json 文件复制到 C 盘根目录"
-    Write-Host "2. 确保文件名为: C:\api.json"
+    Write-Host "2. 确保文件名为: C:\api.json (不是目录)"
     Write-Host "3. 重新运行此脚本"
+    Write-Host ""
+    Write-Host "或者，将 api.json 放在其他位置，然后修改脚本中的路径"
     exit 1
 }
 
-$fileSize = [math]::Round((Get-Item $apiJsonPath).Length / 1MB, 2)
-Write-Host "找到 api.json: $fileSize MB" -ForegroundColor Green
 Write-Host ""
 
 # 验证 JSON 是否有效
+Write-Host "验证 JSON 文件..." -ForegroundColor Cyan
 try {
-    $null = Get-Content $apiJsonPath | ConvertFrom-Json
+    $null = Get-Content $apiJsonPath -Raw | ConvertFrom-Json
     Write-Host "JSON 文件验证通过" -ForegroundColor Green
 } catch {
     Write-Host "错误: api.json 文件格式无效" -ForegroundColor Red
+    Write-Host "请确保文件是完整的 JSON 格式"
     exit 1
 }
 
 Write-Host ""
 
-# 设置环境变量，使用本地 file:// URL
-$env:OPENCODE_MODELS_URL = "file:///C:/"
+# 将 api.json 复制到项目根目录，避免路径问题
+Write-Host "准备构建文件..." -ForegroundColor Cyan
+$localApiJson = "$ScriptDir\api.json"
+Copy-Item $apiJsonPath -Destination $localApiJson -Force
+Write-Host "已复制 api.json 到: $localApiJson" -ForegroundColor Green
+Write-Host ""
 
 Write-Host "开始构建..." -ForegroundColor Cyan
 Push-Location "$ScriptDir\packages\opencode"
 
+# 使用绝对路径的 MODELS_DEV_API_JSON
+$env:MODELS_DEV_API_JSON = $localApiJson
+$env:OPENCODE_DISABLE_MODELS_FETCH = "1"
+
+Write-Host "环境变量 MODELS_DEV_API_JSON = $env:MODELS_DEV_API_JSON" -ForegroundColor DarkGray
 bun run script/build.ts --single
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "构建失败" -ForegroundColor Red
     Pop-Location
-    Remove-Item Env:OPENCODE_MODELS_URL
+    Remove-Item $localApiJson -Force -ErrorAction SilentlyContinue
     exit 1
 }
 
 Pop-Location
 
-# 清理环境变量
-Remove-Item Env:OPENCODE_MODELS_URL
+# 清理
+Remove-Item $localApiJson -Force -ErrorAction SilentlyContinue
+Remove-Item Env:MODELS_DEV_API_JSON -ErrorAction SilentlyContinue
+Remove-Item Env:OPENCODE_DISABLE_MODELS_FETCH -ErrorAction SilentlyContinue
 
 Write-Host "构建成功!" -ForegroundColor Green
 Write-Host ""
@@ -99,13 +124,6 @@ if (Test-Path $distPath) {
 ## 离线使用
 
 本版本已内置完整的模型配置，可在受限网络中使用。
-
-如需禁用网络请求，设置环境变量:
-`$env:OPENCODE_DISABLE_MODELS_FETCH=1
-
-## 配置 API Key
-
-运行: opencode auth login
 
 版本: $Version
 构建时间: $Timestamp
