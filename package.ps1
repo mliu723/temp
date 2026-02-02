@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
-# OpenCode CLI 打包脚本 (Windows 精简版)
-# 用途：只打包 CLI 工具
+# OpenCode CLI 打包脚本 (直接使用 snapshot)
+# 从现有 snapshot 提取 JSON，无需 api.json
 
 $ErrorActionPreference = "Stop"
 
@@ -10,48 +10,58 @@ $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $OutputFile = "$ScriptDir\opencode-cli-$Version-$Timestamp.tar.gz"
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "OpenCode CLI 打包脚本 (Windows)" -ForegroundColor Cyan
+Write-Host "OpenCode CLI 打包 (使用现有 snapshot)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查参数
-if ($args.Count -eq 0 -or $args[0] -eq "--help") {
-    Write-Host "用法: .\package.ps1 <api.json路径>"
-    Write-Host ""
-    Write-Host "示例:"
-    Write-Host "  .\package.ps1 api.json"
-    exit 0
-}
-
-$apiJsonPath = $args[0]
-
-if (-not (Test-Path $apiJsonPath)) {
-    Write-Host "错误: 找不到 api.json 文件: $apiJsonPath" -ForegroundColor Red
+$snapshotPath = "$ScriptDir\packages\opencode\src\provider\models-snapshot.ts"
+if (-not (Test-Path $snapshotPath)) {
+    Write-Host "错误: 找不到 models-snapshot.ts" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "使用 api.json: $apiJsonPath" -ForegroundColor Green
+$fileSize = [math]::Round((Get-Item $snapshotPath).Length / 1KB, 2)
+Write-Host "找到 snapshot 文件: $fileSize KB" -ForegroundColor Green
 Write-Host ""
 
-# 设置环境变量
-$env:MODELS_DEV_API_JSON = $apiJsonPath
+# 从 snapshot 文件中提取 JSON 数据
+$snapshotContent = Get-Content $snapshotPath -Raw
+if ($snapshotContent -match 'export const snapshot = ({.+}) as const') {
+    $jsonData = $matches[1]
 
-# 构建
-Write-Host "开始构建..." -ForegroundColor Cyan
-Push-Location "$ScriptDir\packages\opencode"
+    # 创建临时 api.json 文件
+    $tempApiJson = "$ScriptDir\temp-api.json"
+    $jsonData | Out-File -FilePath $tempApiJson -Encoding UTF8
 
-bun run script/build.ts --single
+    Write-Host "从 snapshot 提取 JSON 数据" -ForegroundColor Green
+    Write-Host ""
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "构建失败" -ForegroundColor Red
+    # 设置环境变量
+    $env:MODELS_DEV_API_JSON = $tempApiJson
+
+    Write-Host "开始构建..." -ForegroundColor Cyan
+    Push-Location "$ScriptDir\packages\opencode"
+
+    bun run script/build.ts --single
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "构建失败" -ForegroundColor Red
+        Pop-Location
+        Remove-Item $tempApiJson -Force -ErrorAction SilentlyContinue
+        Remove-Item Env:MODELS_DEV_API_JSON
+        exit 1
+    }
+
     Pop-Location
+
+    # 清理
+    Remove-Item $tempApiJson -Force -ErrorAction SilentlyContinue
+    Remove-Item Env:MODELS_DEV_API_JSON
+
+} else {
+    Write-Host "错误: 无法从 snapshot 文件提取 JSON 数据" -ForegroundColor Red
     exit 1
 }
-
-Pop-Location
-
-# 清理环境变量
-Remove-Item Env:MODELS_DEV_API_JSON
 
 Write-Host "构建成功!" -ForegroundColor Green
 Write-Host ""
@@ -59,6 +69,9 @@ Write-Host ""
 # 打包
 Write-Host "打包中..." -ForegroundColor Cyan
 $tempDir = "$ScriptDir\dist-package-temp"
+if (Test-Path $tempDir) {
+    Remove-Item -Path $tempDir -Recurse -Force
+}
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 New-Item -ItemType Directory -Path "$tempDir\cli" -Force | Out-Null
 
@@ -68,30 +81,26 @@ if (Test-Path $distPath) {
     Copy-Item -Path "$distPath\*" -Destination "$tempDir\cli\" -Recurse -Force
 }
 
-# 创建简化的安装说明
+# 创建安装说明
 @"
 # OpenCode CLI 安装说明 (Windows)
 
 ## 快速安装
 
 1. 解压此文件
-2. 进入对应平台的 bin 目录
+2. 进入 cli\opencode-windows-x64\bin 目录
 3. 运行 opencode.exe
 
-## 添加到 PATH
+## 添加到 PATH (推荐)
 
-1. 复制 opencode.exe 到 C:\Tools\opencode\
-2. 将 C:\Tools\opencode 添加到系统 PATH
-3. 重新打开命令提示符
+1. 创建目录: C:\Tools\opencode
+2. 复制 opencode.exe 到该目录
+3. 将 C:\Tools\opencode 添加到系统 PATH
+4. 重新打开命令提示符
 
-## 离线模式
+## 离线使用
 
-设置环境变量:
-`$env:OPENCODE_DISABLE_MODELS_FETCH=1
-
-## 配置 API Key
-
-运行: opencode auth login
+本版本已内置完整的模型配置，可在受限网络中使用。
 
 版本: $Version
 构建时间: $Timestamp
@@ -102,16 +111,16 @@ Push-Location $ScriptDir
 tar -czf $OutputFile -C $tempDir .
 Pop-Location
 
-# 清理临时目录
+# 清理
 Remove-Item -Path $tempDir -Recurse -Force
 
 # 显示结果
-$fileSize = [math]::Round((Get-Item $OutputFile).Length / 1MB, 2)
+$resultSize = [math]::Round((Get-Item $OutputFile).Length / 1MB, 2)
 
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "打包完成!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "文件: $OutputFile"
-Write-Host "大小: $fileSize MB"
+Write-Host "大小: $resultSize MB"
 Write-Host "==========================================" -ForegroundColor Cyan
