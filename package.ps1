@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
-# OpenCode CLI 打包脚本 (直接使用 snapshot)
-# 从现有 snapshot 提取 JSON，无需 api.json
+# OpenCode CLI 打包脚本 (使用本地 api.json)
+# 无需从 models.dev 下载
 
 $ErrorActionPreference = "Stop"
 
@@ -10,58 +10,56 @@ $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $OutputFile = "$ScriptDir\opencode-cli-$Version-$Timestamp.tar.gz"
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "OpenCode CLI 打包 (使用现有 snapshot)" -ForegroundColor Cyan
+Write-Host "OpenCode CLI 打包 (离线模式)" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$snapshotPath = "$ScriptDir\packages\opencode\src\provider\models-snapshot.ts"
-if (-not (Test-Path $snapshotPath)) {
-    Write-Host "错误: 找不到 models-snapshot.ts" -ForegroundColor Red
+# 检查 api.json 是否存在
+$apiJsonPath = "C:\api.json"
+if (-not (Test-Path $apiJsonPath)) {
+    Write-Host "错误: 找不到 C:\api.json 文件" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "请按以下步骤操作："
+    Write-Host "1. 将 api.json 文件复制到 C 盘根目录"
+    Write-Host "2. 确保文件名为: C:\api.json"
+    Write-Host "3. 重新运行此脚本"
     exit 1
 }
 
-$fileSize = [math]::Round((Get-Item $snapshotPath).Length / 1KB, 2)
-Write-Host "找到 snapshot 文件: $fileSize KB" -ForegroundColor Green
+$fileSize = [math]::Round((Get-Item $apiJsonPath).Length / 1MB, 2)
+Write-Host "找到 api.json: $fileSize MB" -ForegroundColor Green
 Write-Host ""
 
-# 从 snapshot 文件中提取 JSON 数据
-$snapshotContent = Get-Content $snapshotPath -Raw
-if ($snapshotContent -match 'export const snapshot = ({.+}) as const') {
-    $jsonData = $matches[1]
-
-    # 创建临时 api.json 文件
-    $tempApiJson = "$ScriptDir\temp-api.json"
-    $jsonData | Out-File -FilePath $tempApiJson -Encoding UTF8
-
-    Write-Host "从 snapshot 提取 JSON 数据" -ForegroundColor Green
-    Write-Host ""
-
-    # 设置环境变量
-    $env:MODELS_DEV_API_JSON = $tempApiJson
-
-    Write-Host "开始构建..." -ForegroundColor Cyan
-    Push-Location "$ScriptDir\packages\opencode"
-
-    bun run script/build.ts --single
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "构建失败" -ForegroundColor Red
-        Pop-Location
-        Remove-Item $tempApiJson -Force -ErrorAction SilentlyContinue
-        Remove-Item Env:MODELS_DEV_API_JSON
-        exit 1
-    }
-
-    Pop-Location
-
-    # 清理
-    Remove-Item $tempApiJson -Force -ErrorAction SilentlyContinue
-    Remove-Item Env:MODELS_DEV_API_JSON
-
-} else {
-    Write-Host "错误: 无法从 snapshot 文件提取 JSON 数据" -ForegroundColor Red
+# 验证 JSON 是否有效
+try {
+    $null = Get-Content $apiJsonPath | ConvertFrom-Json
+    Write-Host "JSON 文件验证通过" -ForegroundColor Green
+} catch {
+    Write-Host "错误: api.json 文件格式无效" -ForegroundColor Red
     exit 1
 }
+
+Write-Host ""
+
+# 设置环境变量，使用本地 file:// URL
+$env:OPENCODE_MODELS_URL = "file:///C:/"
+
+Write-Host "开始构建..." -ForegroundColor Cyan
+Push-Location "$ScriptDir\packages\opencode"
+
+bun run script/build.ts --single
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "构建失败" -ForegroundColor Red
+    Pop-Location
+    Remove-Item Env:OPENCODE_MODELS_URL
+    exit 1
+}
+
+Pop-Location
+
+# 清理环境变量
+Remove-Item Env:OPENCODE_MODELS_URL
 
 Write-Host "构建成功!" -ForegroundColor Green
 Write-Host ""
@@ -101,6 +99,13 @@ if (Test-Path $distPath) {
 ## 离线使用
 
 本版本已内置完整的模型配置，可在受限网络中使用。
+
+如需禁用网络请求，设置环境变量:
+`$env:OPENCODE_DISABLE_MODELS_FETCH=1
+
+## 配置 API Key
+
+运行: opencode auth login
 
 版本: $Version
 构建时间: $Timestamp
