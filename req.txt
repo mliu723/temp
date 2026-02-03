@@ -1,0 +1,38 @@
+Fetch data from a configured API endpoint and present it as a selectable list.
+
+Workflow:
+1. Fetches items from API1 (configured via OPENCODE_REQ_API_URL)
+2. Parses the JSON response and extracts an array using the configured path
+3. Presents the items as an interactive selection list in the TUI
+4. Optionally fetches detailed data from API2 after selection
+5. Returns the fetched data for injection into the LLM context
+
+Configuration (via environment variables):
+
+Required:
+  OPENCODE_REQ_API_URL          - API endpoint URL (e.g., "https://api.example.com/items")
+
+Optional for API1:
+  OPENCODE_REQ_BODY             - Request body JSON string (default: "{}")
+  OPENCODE_REQ_RESPONSE_PATH    - Dot-notation path to array in response (default: "data.content")
+  OPENCODE_REQ_DISPLAY_FIELD    - Field to use as display label (default: "name")
+  OPENCODE_REQ_DESCRIPTION_FIELD - Field to use as description (default: "")
+
+Optional for API2 (details fetch):
+  OPENCODE_REQ_API2_URL         - Second API endpoint URL, supports {id} placeholder
+  OPENCODE_REQ_API2_METHOD      - HTTP method for API2 (default: "GET")
+  OPENCODE_REQ_API2_BODY        - Request body JSON string for API2
+  OPENCODE_REQ_ID_FIELD         - Field to use as ID for API2 call (default: "id")
+
+Example response format:
+{
+  "data": {
+    "content": [
+      { "id": "1", "name": "Item 1" },
+      { "id": "2", "name": "Item 2" }
+    ]
+  }
+}
+
+After selection, the data (from API1 or API2) is injected into the conversation,
+allowing the user to ask the LLM to analyze it, write code based on it, or discuss it.
