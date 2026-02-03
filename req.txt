@@ -13,6 +13,7 @@ Required:
   OPENCODE_REQ_API_URL          - API endpoint URL (e.g., "https://api.example.com/items")
 
 Optional for API1:
+  OPENCODE_REQ_TOKEN            - JWT token for authentication (adds Bearer header)
   OPENCODE_REQ_BODY             - Request body JSON string (default: "{}")
   OPENCODE_REQ_RESPONSE_PATH    - Dot-notation path to array in response (default: "data.content")
   OPENCODE_REQ_DISPLAY_FIELD    - Field to use as display label (default: "name")

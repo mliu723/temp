@@ -18,6 +18,8 @@ const CONFIG = {
   displayField: process.env.OPENCODE_REQ_DISPLAY_FIELD || "name",
   // Field to use as description (optional)
   descriptionField: process.env.OPENCODE_REQ_DESCRIPTION_FIELD || "",
+  // JWT token for authentication (optional)
+  token: process.env.OPENCODE_REQ_TOKEN || "",
 
   // API2: Get details endpoint (optional, supports {id} placeholder)
   // Example: "https://api.example.com/requirements/{id}"
@@ -113,9 +115,14 @@ export const ReqTool = Tool.define("req", {
       requestBody = {}
     }
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (CONFIG.token) {
+      headers["Authorization"] = `Bearer ${CONFIG.token}`
+    }
+
     const response = await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(requestBody),
       signal: ctx.abort,
     })
@@ -211,9 +218,14 @@ export const ReqTool = Tool.define("req", {
       api2Body = {}
     }
 
+    const api2Headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (CONFIG.token) {
+      api2Headers["Authorization"] = `Bearer ${CONFIG.token}`
+    }
+
     const api2Response = await fetch(api2Url, {
       method: CONFIG.api2Method.toUpperCase(),
-      headers: { "Content-Type": "application/json" },
+      headers: api2Headers,
       body: CONFIG.api2Method.toUpperCase() !== "GET" ? JSON.stringify(api2Body) : undefined,
       signal: ctx.abort,
     })
