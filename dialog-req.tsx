@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onMount } from "solid-js"
+import { createMemo, createSignal, onMount, Show } from "solid-js"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { useDialog } from "@tui/ui/dialog"
 import { useSDK } from "@tui/context/sdk"
@@ -141,7 +141,7 @@ export function DialogReq() {
 
       setItems(list)
     } catch (error) {
-      toast.error(`Failed to fetch requirements: ${error}`)
+      toast.error(error)
       dialog.clear()
     } finally {
       setLoading(false)
@@ -150,14 +150,28 @@ export function DialogReq() {
 
   // Build options for DialogSelect
   const options = createMemo(() =>
-    items().map((item) => ({
-      title: getDisplayValue(item, CONFIG.displayField),
-      description: CONFIG.descriptionField
-        ? getDisplayValue(item, CONFIG.descriptionField, "id")
-        : getDisplayValue(item, "id", "") || "",
-      value: item,
-      onSelect: async () => await handleSelection(item),
-    })),
+    items().map((item, index) => {
+      // Use a unique key - prefer the id field, fallback to index
+      const itemId = getDisplayValue(item, CONFIG.idField, "id")
+      const uniqueKey = itemId || `item-${index}`
+
+      return {
+        key: uniqueKey,
+        value: item,
+        title: getDisplayValue(item, CONFIG.displayField),
+        description: CONFIG.descriptionField
+          ? getDisplayValue(item, CONFIG.descriptionField, "id")
+          : getDisplayValue(item, "id", "") || "",
+        onSelect: async () => {
+          try {
+            await handleSelection(item)
+          } catch (error) {
+            console.error("Error selecting item:", error)
+            toast.error(error)
+          }
+        },
+      }
+    }),
   )
 
   // Handle selection - call API2 and inject synthetic message
@@ -247,13 +261,16 @@ export function DialogReq() {
 
       dialog.clear()
     } catch (error) {
-      toast.error(`Failed to load requirement details: ${error}`)
+      toast.error(error)
     }
   }
 
-  if (loading()) {
-    return <div class="p-4 text-center">Loading requirements...</div>
-  }
-
-  return <DialogSelect title="Select Requirement" options={options()} />
+  return (
+    <Show
+      when={!loading() && items().length > 0}
+      fallback={<DialogSelect title="Loading..." options={[]} />}
+    >
+      <DialogSelect title="Select Requirement" options={options()} />
+    </Show>
+  )
 }
