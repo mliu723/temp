@@ -1,0 +1,28 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // "plugin": ["opencode-openai-codex-auth"],
+  // "enterprise": {
+  //   "url": "https://enterprise.dev.opencode.ai",
+  // },
+  "provider": {
+    "opencode": {
+      "options": {},
+    },
+  },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+    },
+  },
+  "tools": {
+    "github-triage": false,
+    "github-pr-search": false,
+  },
+  // "command": {
+  //   "req": {
+  //     "template": "Call the req tool immediately to fetch and display items from the configured API. Wait for the user to select an item, then discuss the fetched data.",
+  //     "description": "Fetch and select requirements from API",
+  //   },
+  // },
+}
