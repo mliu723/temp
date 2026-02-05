@@ -185,8 +185,16 @@ pause
 
 # 将启动脚本放到 bin 目录
 $binDir = "$tempDir\cli\opencode-windows-x64\bin"
+Write-Host "  检查 bin 目录: $binDir" -ForegroundColor DarkGray
 if (Test-Path $binDir) {
     $launcherBat | Out-File -FilePath "$binDir\opencode.bat" -Encoding default
+    Write-Host "  已创建 opencode.bat" -ForegroundColor Green
+} else {
+    Write-Host "  错误: bin 目录不存在，无法创建启动脚本" -ForegroundColor Red
+    Write-Host "  当前目录结构:" -ForegroundColor Yellow
+    Get-ChildItem -Path "$tempDir\cli" -Recurse | ForEach-Object {
+        Write-Host "    $($_.FullName.Replace($tempDir, '.'))" -ForegroundColor DarkGray
+    }
 }
 
 # 创建 README
