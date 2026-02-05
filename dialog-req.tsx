@@ -3,11 +3,9 @@ import { DialogSelect } from "@tui/ui/dialog-select"
 import { useDialog } from "@tui/ui/dialog"
 import { useSDK } from "@tui/context/sdk"
 import { useRoute } from "@tui/context/route"
+import { useLocal } from "@tui/context/local"
 import { useToast } from "../ui/toast"
-import { Session } from "@/session"
-import { MessageV2 } from "@/session/message-v2"
 import { Identifier } from "@/id/id"
-import { Provider } from "@/provider/provider"
 
 // ============================================================================
 // CONFIGURATION - Environment variables for easy customization
@@ -86,9 +84,9 @@ async function fetchRequirements(): Promise<FetchResult> {
   if (!CONFIG.apiUrl) {
     return {
       items: [
-        { id: "REQ-001", name: "Add user authentication", description: "Implement JWT auth" },
-        { id: "REQ-002", name: "Create dashboard", description: "Build main dashboard UI" },
-        { id: "REQ-003", name: "File upload feature", description: "Allow file uploads" },
+        { id: "REQ-001", name: "添加用户认证", description: "实现 JWT 认证" },
+        { id: "REQ-002", name: "创建仪表板", description: "构建主仪表板界面" },
+        { id: "REQ-003", name: "文件上传功能", description: "允许文件上传" },
       ],
       error: null,
     }
@@ -116,7 +114,7 @@ async function fetchRequirements(): Promise<FetchResult> {
     if (!response.ok) {
       return {
         items: [],
-        error: `API request failed: ${response.status} ${response.statusText}`,
+        error: `API 请求失败: ${response.status} ${response.statusText}`,
       }
     }
 
@@ -124,14 +122,14 @@ async function fetchRequirements(): Promise<FetchResult> {
     const items = extractArray(data, CONFIG.responsePath)
 
     if (items.length === 0) {
-      return { items: [], error: "API returned no requirements" }
+      return { items: [], error: "API 未返回任何需求" }
     }
 
     return { items, error: null }
   } catch (error) {
     return {
       items: [],
-      error: error instanceof Error ? error.message : "Failed to fetch requirements",
+      error: error instanceof Error ? error.message : "获取需求失败",
     }
   }
 }
@@ -146,7 +144,18 @@ async function fetchRequirementDetails(item: RequirementItem): Promise<{ data: a
   }
 
   try {
-    const itemId = getDisplayValue(item, CONFIG.idField, "id")
+    // Extract the ID value directly from the item
+    const itemId = getNestedValue(item, CONFIG.idField) ||
+                   getNestedValue(item, "id") ||
+                   getNestedValue(item, "requestId")
+
+    if (!itemId) {
+      return {
+        data: null,
+        error: `无法从需求中提取 ID (字段: ${CONFIG.idField})`,
+      }
+    }
+
     const api2Url = replacePlaceholders(CONFIG.api2Url, { ...item, id: itemId })
     let api2Body: Record<string, any> = {}
 
@@ -176,7 +185,7 @@ async function fetchRequirementDetails(item: RequirementItem): Promise<{ data: a
     if (!api2Response.ok) {
       return {
         data: null,
-        error: `API2 request failed: ${api2Response.status} ${api2Response.statusText}`,
+        error: `API2 请求失败: ${api2Response.status} ${api2Response.statusText}`,
       }
     }
 
@@ -185,61 +194,44 @@ async function fetchRequirementDetails(item: RequirementItem): Promise<{ data: a
   } catch (error) {
     return {
       data: null,
-      error: error instanceof Error ? error.message : "Failed to fetch requirement details",
+      error: error instanceof Error ? error.message : "获取需求详情失败",
     }
   }
-}
-
-async function getLastModel(sessionID: string) {
-  for await (const item of MessageV2.stream(sessionID)) {
-    if (item.info.role === "user" && item.info.model) return item.info.model
-  }
-  return Provider.defaultModel()
 }
 
 async function injectRequirementData(
   sessionID: string,
   requirementData: any,
   action: Action,
+  agentName: string,
+  model: { providerID: string; modelID: string },
+  sdk: ReturnType<typeof useSDK>,
 ): Promise<void> {
-  const model = await getLastModel(sessionID)
-
-  // Create user message with the requirement data as synthetic part
-  const userMsg: MessageV2.User = {
-    id: Identifier.ascending("message"),
-    sessionID,
-    role: "user",
-    time: { created: Date.now() },
-    agent: "build",
-    model,
-  }
-  await Session.updateMessage(userMsg)
-
-  // Inject requirement data as synthetic part (visible to LLM but not displayed to user)
-  await Session.updatePart({
-    id: Identifier.ascending("part"),
-    messageID: userMsg.id,
-    sessionID,
-    type: "text",
-    text: `User selected a requirement via /req command. Here is the detailed requirement data:\n\n${JSON.stringify(requirementData, null, 2)}`,
-    synthetic: true,
-    time: { start: Date.now(), end: Date.now() },
-  } satisfies MessageV2.TextPart)
-
-  // Add the user's chosen action as a visible part
+  // Build the message with requirement data formatted cleanly
   const actionText =
     action === "generate"
-      ? "Generate code based on this requirement."
-      : "Let's discuss this requirement."
+      ? "根据此需求生成代码。"
+      : "让我们讨论这个需求。"
 
-  await Session.updatePart({
-    id: Identifier.ascending("part"),
-    messageID: userMsg.id,
+  // Format requirement data in a readable way
+  const requirementText = `\n\n--- 需求详情 ---\n${JSON.stringify(requirementData, null, 2)}\n--- 需求详情结束 ---`
+
+  const fullText = actionText + requirementText
+
+  // Send using the SDK client which properly handles all contexts
+  await sdk.client.session.prompt({
     sessionID,
-    type: "text",
-    text: actionText,
-    time: { start: Date.now(), end: Date.now() },
-  } satisfies MessageV2.TextPart)
+    messageID: Identifier.ascending("message"),
+    agent: agentName,
+    model,
+    parts: [
+      {
+        id: Identifier.ascending("part"),
+        type: "text",
+        text: fullText,
+      },
+    ],
+  })
 }
 
 // ============================================================================
@@ -254,6 +246,7 @@ export function DialogReqAction(props: { item: RequirementItem; itemName: string
   const route = useRoute()
   const dialog = useDialog()
   const toast = useToast()
+  const local = useLocal()
 
   const [details] = createResource(() => fetchRequirementDetails(props.item))
 
@@ -266,8 +259,8 @@ export function DialogReqAction(props: { item: RequirementItem; itemName: string
         {
           key: "loading",
           value: null as Action | null,
-          title: "Loading...",
-          description: "Fetching requirement details",
+          title: "加载中...",
+          description: "正在获取需求详情",
           disabled: true,
         },
       ]
@@ -285,8 +278,8 @@ export function DialogReqAction(props: { item: RequirementItem; itemName: string
       {
         key: "discuss",
         value: "discuss" as Action,
-        title: "Discuss with LLM",
-        description: "Talk about the requirement before implementing",
+        title: "与 AI 讨论",
+        description: "在实现之前讨论此需求",
         onSelect: async () => {
           await handleAction("discuss", result.data)
         },
@@ -294,8 +287,8 @@ export function DialogReqAction(props: { item: RequirementItem; itemName: string
       {
         key: "generate",
         value: "generate" as Action,
-        title: "Generate code directly",
-        description: "Start implementing the requirement immediately",
+        title: "直接生成代码",
+        description: "立即开始实现此需求",
         onSelect: async () => {
           await handleAction("generate", result.data)
         },
@@ -305,36 +298,50 @@ export function DialogReqAction(props: { item: RequirementItem; itemName: string
 
   const handleAction = async (action: Action, data: any) => {
     try {
+      // Get current agent and model
+      const agent = local.agent.current()
+      const model = local.model.current()
+
+      if (!model) {
+        toast.error("请先选择一个模型")
+        return
+      }
+
       // Get or create session
       let sessionID: string
       if (route.data.type === "session") {
         sessionID = route.data.sessionID
+        // Already in session - navigate first (no-op but ensures UI update)
+        route.navigate({ type: "session", sessionID })
       } else {
         const created = await sdk.client.session.create({})
         if (!created.data) {
-          throw new Error("Failed to create session")
+          throw new Error("创建会话失败")
         }
         sessionID = created.data.id
-      }
-
-      // Inject requirement data with chosen action
-      await injectRequirementData(sessionID, data, action)
-
-      // Navigate to session if needed
-      if (route.data.type !== "session") {
+        // Navigate to session immediately to update UI
         route.navigate({ type: "session", sessionID })
       }
 
+      // Clear dialog immediately after navigation to close it
       dialog.clear()
+
+      // Inject requirement data in background (non-blocking)
+      injectRequirementData(sessionID, data, action, agent.name, model, sdk).catch(
+        (error) => {
+          toast.error(error instanceof Error ? error.message : "处理需求失败")
+        },
+      )
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to process requirement")
+      toast.error(error instanceof Error ? error.message : "处理需求失败")
+      dialog.clear()
     }
   }
 
   const title = createMemo(() => {
     const result = details()
-    if (!result) return "Loading..."
-    return `Selected: ${props.itemName}`
+    if (!result) return "加载中..."
+    return `已选择: ${props.itemName}`
   })
 
   return <DialogSelect title={title()} options={options()} />
@@ -359,8 +366,8 @@ export function DialogReq() {
         {
           key: "loading",
           value: null,
-          title: "Loading...",
-          description: "Fetching requirements",
+          title: "加载中...",
+          description: "正在获取需求列表",
           disabled: true,
         },
       ]
@@ -372,7 +379,7 @@ export function DialogReq() {
         {
           key: "error",
           value: null,
-          title: "Error",
+          title: "错误",
           description: result.error,
           disabled: true,
         },
@@ -385,8 +392,8 @@ export function DialogReq() {
         {
           key: "empty",
           value: null,
-          title: "No requirements found",
-          description: "Configure OPENCODE_REQ_API_URL environment variable",
+          title: "未找到需求",
+          description: "请配置 OPENCODE_REQ_API_URL 环境变量",
           disabled: true,
         },
       ]
@@ -395,13 +402,19 @@ export function DialogReq() {
     // Show items
     return result.items.map((item: RequirementItem) => {
       const itemName = getDisplayValue(item, CONFIG.displayField)
+      const itemId = getDisplayValue(item, "id", "")
+      const creator = getDisplayValue(item, "creator", "")
+
+      // Format: "creator | id"
+      const description = creator
+        ? `${creator} | ${itemId}`
+        : itemId
+
       return {
         key: item,
         value: item,
         title: itemName,
-        description: CONFIG.descriptionField
-          ? getDisplayValue(item, CONFIG.descriptionField, "id")
-          : getDisplayValue(item, "id", "") || "",
+        description: description,
         onSelect: () => {
           // Navigate to action dialog
           dialog.replace(() => (
@@ -414,8 +427,8 @@ export function DialogReq() {
 
   const title = createMemo(() => {
     const result = data()
-    if (!result) return "Loading..."
-    return "Select Requirement"
+    if (!result) return "加载中..."
+    return "选择需求"
   })
 
   return <DialogSelect title={title()} options={options()} />
