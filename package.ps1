@@ -183,14 +183,20 @@ opencode.exe
 pause
 "@
 
-# 将启动脚本放到 bin 目录
-$binDir = "$tempDir\cli\opencode-windows-x64\bin"
-Write-Host "  检查 bin 目录: $binDir" -ForegroundColor DarkGray
+# 将启动脚本放到目录（自动检测是否有 bin 子目录）
+$cliDir = "$tempDir\cli\opencode-windows-x64"
+$binDir = "$cliDir\bin"
+
 if (Test-Path $binDir) {
+    # 有 bin 子目录，放在 bin 里
     $launcherBat | Out-File -FilePath "$binDir\opencode.bat" -Encoding default
-    Write-Host "  已创建 opencode.bat" -ForegroundColor Green
+    Write-Host "  已创建: bin\opencode.bat" -ForegroundColor Green
+} elseif (Test-Path "$cliDir\opencode.exe") {
+    # 没有 bin 子目录，直接放在根目录
+    $launcherBat | Out-File -FilePath "$cliDir\opencode.bat" -Encoding default
+    Write-Host "  已创建: opencode.bat" -ForegroundColor Green
 } else {
-    Write-Host "  错误: bin 目录不存在，无法创建启动脚本" -ForegroundColor Red
+    Write-Host "  错误: 找不到 opencode.exe" -ForegroundColor Red
     Write-Host "  当前目录结构:" -ForegroundColor Yellow
     Get-ChildItem -Path "$tempDir\cli" -Recurse | ForEach-Object {
         Write-Host "    $($_.FullName.Replace($tempDir, '.'))" -ForegroundColor DarkGray
@@ -203,7 +209,7 @@ if (Test-Path $binDir) {
 
 ## 快速开始
 
-1. 进入 `cli\opencode-windows-x64\bin` 目录
+1. 进入 `cli\opencode-windows-x64` 目录（或 `cli\opencode-windows-x64\bin` 目录）
 2. **双击 `opencode.bat`**
 3. 首次运行会自动创建配置文件 `C:\Users\你的用户名\.config\opencode\opencode.json`
 4. 编辑配置文件，将 `你的-API-Key` 替换为真实的 API Key
