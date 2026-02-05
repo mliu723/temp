@@ -144,38 +144,75 @@ REM 配置文件路径
 set "CONFIG_DIR=%USERPROFILE%\.config\opencode"
 set "CONFIG_FILE=!CONFIG_DIR!\opencode.json"
 
-REM 自动创建配置文件（如果不存在）
-if not exist "!CONFIG_FILE!" (
-    echo 正在创建配置文件: !CONFIG_FILE!
-    if not exist "!CONFIG_DIR!" mkdir "!CONFIG_DIR!"
-    (
-        echo {
-        echo   "$schema": "https://opencode.ai/config.json",
-        echo   "provider": {
-        echo     "anthropic": {
-        echo       "options": {
-        echo         "apiKey": "你的-API-Key"
-        echo       }
-        echo     }
-        echo   },
-        echo   "model": "anthropic/claude-sonnet-4-5-20250929"
-        echo }
-    ) > "!CONFIG_FILE!"
+REM 检查配置文件
+if exist "!CONFIG_FILE!" (
+    echo 配置文件已存在: !CONFIG_FILE!
     echo.
-    echo 配置文件已创建！
-    echo.
-    echo 请按以下步骤操作：
-    echo 1. 用记事本打开配置文件
-    echo 2. 将 "你的-API-Key" 替换为真实的 API Key
-    echo 3. 保存并关闭文件
-    echo.
-    choice /c YN /n /m "现在打开配置文件？(Y/N): "
+    choice /c YRN /n /m "是否打开配置文件查看？(Y=打开/N=直接启动/R=重新创建): "
+    if errorlevel 3 goto :recreate
     if errorlevel 2 goto :run
     start "" "!CONFIG_FILE!"
     echo.
-    echo 修改完成后按任意键继续...
+    echo 按任意键启动 OpenCode...
     pause >nul
+    goto :run
 )
+
+REM 创建配置文件
+echo 正在创建配置文件: !CONFIG_FILE!
+if not exist "!CONFIG_DIR!" mkdir "!CONFIG_DIR!"
+(
+    echo {
+    echo   "`$schema": "https://opencode.ai/config.json",
+    echo   "provider": {
+    echo     "anthropic": {
+    echo       "options": {
+    echo         "apiKey": "你的-API-Key"
+    echo       }
+    echo     }
+    echo   },
+    echo   "model": "anthropic/claude-sonnet-4-5-20250929"
+    echo }
+) > "!CONFIG_FILE!"
+echo.
+echo 配置文件已创建！
+echo.
+echo 请按以下步骤操作：
+echo 1. 用记事本打开配置文件
+echo 2. 将 "你的-API-Key" 替换为真实的 API Key
+echo 3. 保存并关闭文件
+echo.
+choice /c YN /n /m "现在打开配置文件？(Y/N): "
+if errorlevel 2 goto :run
+start "" "!CONFIG_FILE!"
+echo.
+echo 修改完成后按任意键继续...
+pause >nul
+goto :run
+
+:recreate
+echo.
+echo 警告：将覆盖现有配置文件！
+choice /c YN /n /m "确定要重新创建吗？(Y/N): "
+if errorlevel 2 goto :run
+(
+    echo {
+    echo   "`$schema": "https://opencode.ai/config.json",
+    echo   "provider": {
+    echo     "anthropic": {
+    echo       "options": {
+    echo         "apiKey": "你的-API-Key"
+    echo       }
+    echo     }
+    echo   },
+    echo   "model": "anthropic/claude-sonnet-4-5-20250929"
+    echo }
+) > "!CONFIG_FILE!"
+echo 配置文件已重新创建！
+start "" "!CONFIG_FILE!"
+echo.
+echo 修改完成后按任意键继续...
+pause >nul
 
 :run
 echo 启动 OpenCode...
